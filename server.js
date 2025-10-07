@@ -7,9 +7,15 @@ const rooms = {}; // { roomId: [ { socket, ready } ] }
 
 wss.on("connection", (socket) => {
   socket.on("message", (msg) => {
-    const data = JSON.parse(msg);
+    let data;
+    try {
+      data = JSON.parse(msg);
+    } catch (e) {
+      console.error("Mensaje inválido:", msg);
+      return;
+    }
 
-    // Unirse a sala
+    // 🟢 Unirse a sala
     if (data.type === "joinRoom") {
       const { roomId } = data;
       rooms[roomId] ??= [];
@@ -19,7 +25,7 @@ wss.on("connection", (socket) => {
       return;
     }
 
-    // Actualizar puntaje
+    // 🟡 Actualizar puntaje en tiempo real
     if (data.type === "perfect") {
       const peers = rooms[socket.roomId] || [];
       for (const peer of peers) {
@@ -30,7 +36,7 @@ wss.on("connection", (socket) => {
       return;
     }
 
-    // Marcar jugador como listo
+    // 🔵 Marcar jugador como listo
     if (data.type === "readyPlay") {
       const room = rooms[socket.roomId];
       if (!room) return;
@@ -38,20 +44,26 @@ wss.on("connection", (socket) => {
       const player = room.find((p) => p.socket === socket);
       if (player) player.ready = data.ready;
 
-      // Notificar al otro jugador que está listo
+      // Notificar al otro jugador
       for (const peer of room) {
         if (peer.socket !== socket && peer.socket.readyState === peer.socket.OPEN) {
-          peer.socket.send(JSON.stringify(data));
+          peer.socket.send(JSON.stringify({ type: "rivalReady", ready: data.ready }));
         }
       }
 
-      // Si ambos están listos → mandar startGame
+      // ✅ Si ambos están listos, mandar startGame
       const allReady = room.length === 2 && room.every((p) => p.ready);
       if (allReady) {
+        console.log(`🎮 Ambos listos en sala ${socket.roomId}, iniciando partida...`);
         for (const peer of room) {
           if (peer.socket.readyState === peer.socket.OPEN) {
             peer.socket.send(JSON.stringify({ type: "startGame" }));
           }
+        }
+
+        // 🔁 Reiniciar estados ready para la siguiente partida
+        for (const peer of room) {
+          peer.ready = false;
         }
       }
     }
@@ -59,7 +71,11 @@ wss.on("connection", (socket) => {
 
   socket.on("close", () => {
     if (!socket.roomId) return;
-    rooms[socket.roomId] = (rooms[socket.roomId] || []).filter((p) => p.socket !== socket);
+    const room = rooms[socket.roomId];
+    if (room) {
+      rooms[socket.roomId] = room.filter((p) => p.socket !== socket);
+      console.log(`Jugador salió de sala ${socket.roomId}`);
+    }
   });
 });
 
